@@ -31,7 +31,10 @@ def convert_to_text(pdf_path):
         return None
 
 def convert_to_excel(pdf_path):
-    """Extracts tables from a PDF to an Excel file."""
+    """
+    Extracts tables from a PDF to an Excel file.
+    If no tables are found, it converts the text content to a single-column Excel file.
+    """
     all_tables = []
     try:
         with pdfplumber.open(pdf_path) as pdf:
@@ -45,14 +48,23 @@ def convert_to_excel(pdf_path):
         st.error(f"Failed to extract tables: {e}")
         return None
 
-    if not all_tables:
-        st.warning("⚠️ No tables were found in the PDF. The Excel file will be empty.")
-        return pd.DataFrame() # Return an empty DataFrame to create a blank file
-
-    return pd.concat(all_tables)
+    if all_tables:
+        st.info("✅ Tables found and extracted from the PDF.")
+        return pd.concat(all_tables)
+    else:
+        # If no tables were found, convert the entire text content to a DataFrame
+        st.warning("⚠️ No tables were found in the PDF. Converting the entire text content to an Excel file.")
+        text_content = convert_to_text(pdf_path)
+        if text_content:
+            return pd.DataFrame([text_content], columns=["Text Content from PDF"])
+        return pd.DataFrame() # Return an empty DataFrame if no text is found
 
 def convert_to_word(pdf_path):
-    """Converts a PDF to a Word document."""
+    """
+    Converts a PDF to a Word document, preserving only the text content.
+    Note: Due to library limitations, complex formatting, images, and layout
+    will not be preserved.
+    """
     doc = docx.Document()
     try:
         with fitz.open(pdf_path) as pdf_document:
@@ -60,6 +72,11 @@ def convert_to_word(pdf_path):
             for page_num in range(len(pdf_document)):
                 page = pdf_document.load_page(page_num)
                 text_content += page.get_text()
+                # Adding a page break for better document structure
+                if page_num < len(pdf_document) - 1:
+                    text_content += "\n\n--- Page Break ---\n\n"
+            
+            # Add text as a single paragraph
             doc.add_paragraph(text_content)
             return doc
     except Exception as e:
@@ -94,23 +111,26 @@ if uploaded_file:
                     if text_data is not None:
                         with open(output_file_path, "w", encoding="utf-8") as f:
                             f.write(text_data)
+                        st.success("✅ Conversion to Text complete!")
 
                 elif conversion_type == 'Excel (.xlsx)':
                     output_file_path = "output.xlsx"
                     df = convert_to_excel(pdf_path)
                     if df is not None:
                         df.to_excel(output_file_path, index=False)
+                        st.success("✅ Conversion to Excel complete!")
 
                 elif conversion_type == 'Word (.docx)':
+                    st.info("ℹ️ Please note: Word conversion currently only extracts text and does not preserve original formatting like images, fonts, or layout.")
                     output_file_path = "output.docx"
                     doc_obj = convert_to_word(pdf_path)
                     if doc_obj is not None:
                         doc_obj.save(output_file_path)
+                        st.success("✅ Conversion to Word complete!")
 
             # If an output file was created, provide a download button
             if os.path.exists(output_file_path):
                 with open(output_file_path, "rb") as f:
-                    st.success("✅ Conversion complete!")
                     st.download_button(
                         label="Download Converted File",
                         data=f,
@@ -127,4 +147,8 @@ if uploaded_file:
             if os.path.exists(pdf_path):
                 os.remove(pdf_path)
             if output_file_path and os.path.exists(output_file_path):
-                os.remove(output_file_path)
+                try:
+                    os.remove(output_file_path)
+                except OSError as e:
+                    # File might be in use, which is normal for Streamlit's download button
+                    print(f"Error removing file: {e}")
